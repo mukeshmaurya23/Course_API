@@ -1,7 +1,40 @@
 const express = require("express");
 const cors = require("cors");
 const morgan = require("morgan");
+const jwt = require("jsonwebtoken");
 const app = express();
+require("dotenv").config();
+
+//create jwt funtion
+function generateAccessToken(email) {
+  return jwt.sign(email, process.env.TOKEN_SECRET);
+}
+
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers["authorization"];
+  if (!authHeader)
+    return res.status(401).json({
+      status: 0,
+      message: "Unauthorized",
+    });
+  const token = authHeader.split(" ")[1];
+  if (token == null) {
+    return res.status(401).json({
+      status: 0,
+      message: "Unauthorized",
+    });
+  }
+  jwt.verify(token, process.env.TOKEN_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({
+        status: 0,
+        message: "Forbidden",
+      });
+    }
+    req.user = user;
+    next();
+  });
+}
 
 //5 type of middleware
 /**
@@ -66,18 +99,63 @@ app.get("/", (req, res) => {
   res.status(200).send({ message: "Welcome to the course app" });
 });
 
-app.post("/admin/login", adminAuthnetication, (req, res) => {
-  res.status(200).json({
-    status: 1,
-    message: "Admin Login SuccessFully",
-  });
+// app.post("/admin/login", adminAuthnetication, (req, res) => {
+//     const { email, password } = req.headers;
+//     const token=generateAccessToken(email,password)
+//   res.status(200).json({
+//     status: 1,
+//     message: "Admin Login SuccessFully",
+//     token
+//   });
+// });
+app.post("/admin/login", (req, res) => {
+  const { email, password } = req.headers;
+  const admin = ADMIN.find(
+    (isAdmin) => isAdmin.email == email && isAdmin.password == password
+  );
+  if (admin) {
+    const token = generateAccessToken(email);
+    res.status(200).json({
+      status: 1,
+      message: "Admin Login SuccessFully",
+      token,
+    });
+  } else {
+    res.status(403).json({
+      status: 0,
+      message: "Admin Authentication failed",
+    });
+  }
 });
 
-app.post("/user/login", userAuthentication, (req, res) => {
-  res.status(200).json({
-    status: 1,
-    message: "User Login SuccessFully",
-  });
+// app.post("/user/login", userAuthentication, (req, res) => {
+//   const { email, password } = req.headers;
+//   const token = generateAccessToken(email, password);
+//   res.status(200).json({
+//     status: 1,
+//     message: "User Login SuccessFully",
+//     token,
+//   });
+// });
+app.post("/user/login", (req, res) => {
+  const { email, password } = req.headers;
+  const user = USER.find(
+    (isUser) => isUser.email == email && isUser.password == password
+  );
+  console.log(user, "user");
+  if (user) {
+    const token = generateAccessToken(email);
+    res.status(200).json({
+      status: 1,
+      message: "User Login SuccessFully",
+      token,
+    });
+  } else {
+    res.status(403).json({
+      status: 0,
+      message: "User Authentication failed",
+    });
+  }
 });
 app.post("/admin/register", (req, res) => {
   const { userName, email, password } = req.body;
@@ -135,7 +213,37 @@ app.post("/user/register", (req, res) => {
     message: "User Signup Successfully",
   });
 });
-app.post("/admin/courses", adminAuthnetication, (req, res) => {
+// app.post("/admin/courses", adminAuthnetication, (req, res) => {
+//   const course = req.body;
+//   if (course) {
+//     course.id = Date.now();
+
+//     COURSES.push(course);
+//     res.status(201).json({
+//       status: 1,
+//       message: "Courses Added Successfully",
+//       courseId: course.id,
+//     });
+//   } else {
+//     res.status(400).json({
+//       status: 0,
+//       message: "Please Enter all the fields",
+//     });
+//   }
+// });
+app.post("/admin/courses", authenticateToken, (req, res) => {
+  const userEmail = req.user;
+  console.log(userEmail, "userEmail");
+
+  //only admin can add courses
+  const admin = ADMIN.find((isAdmin) => isAdmin.email === userEmail);
+  if (!admin) {
+    return res.status(403).json({
+      status: 0,
+      message: "Forbidden",
+    });
+  }
+
   const course = req.body;
   if (course) {
     course.id = Date.now();
@@ -153,7 +261,16 @@ app.post("/admin/courses", adminAuthnetication, (req, res) => {
     });
   }
 });
-app.post("/admin/courses/:courseId", adminAuthnetication, (req, res) => {
+app.post("/admin/courses/:courseId", authenticateToken, (req, res) => {
+  const userEmail = req.user;
+  console.log(userEmail, "userEmail");
+  const admin = ADMIN.find((isAdmin) => isAdmin.email === userEmail);
+  if (!admin) {
+    return res.status(403).json({
+      status: 0,
+      message: "Forbidden",
+    });
+  }
   const courseId = Number(req.params.courseId);
   const course = COURSES.find((course) => course.id === courseId);
   if (course) {
@@ -170,7 +287,19 @@ app.post("/admin/courses/:courseId", adminAuthnetication, (req, res) => {
   }
 });
 
-app.get("/admin/courses", adminAuthnetication, (req, res) => {
+app.get("/admin/courses", authenticateToken, (req, res) => {
+  const userEmail = req.user;
+  console.log(userEmail, "userEmail");
+
+  const admin = ADMIN.find((isAdmin) => isAdmin.email === userEmail);
+  //or you can craete a separate middleware for admin authentication and use it here
+  if (!admin) {
+    return res.status(403).json({
+      status: 0,
+      message: "Forbidden",
+    });
+  }
+
   res.status(200).json({
     status: 1,
     message: "Course fetched successfully",
@@ -178,7 +307,7 @@ app.get("/admin/courses", adminAuthnetication, (req, res) => {
   });
 });
 
-app.get("/users/courses", userAuthentication, (req, res) => {
+app.get("/users/courses", authenticateToken, (req, res) => {
   res.status(200).json({
     status: 1,
     message: "Course fetched successfully",
@@ -192,11 +321,18 @@ app.post("/users/courses/:courseId", userAuthentication, (req, res) => {
     (course) => course.id === courseId && course.published
   );
   if (courses) {
-    req.user.purchasedCourse.push(courseId);
+    const user = USER.find((user) => user.email === req.user);
+    if (user.purchasedCourse.includes(courseId)) {
+      return res.status(200).json({
+        status: 1,
+        message: "Course already purchased",
+      });
+    }
+    user.purchasedCourse.push(courseId);
     res.status(200).json({
       status: 1,
       message: "Course purchased successfully",
-      data: courseId,
+      courseId: courses.id,
     });
   } else {
     res.status(404).json({
@@ -206,9 +342,11 @@ app.post("/users/courses/:courseId", userAuthentication, (req, res) => {
   }
 });
 app.get("/users/courses/purchasedCourse", userAuthentication, (req, res) => {
-  const purchasedCourse = COURSES.filter((c) =>
-    req.user.purchasedCourse.includes(c.id)
+  const user = USER.find((user) => user.email === req.user);
+  const purchasedCourse = COURSES.filter((course) =>
+    user.purchasedCourse.includes(course.id)
   );
+
   if (purchasedCourse) {
     res.status(200).json({
       status: 1,
